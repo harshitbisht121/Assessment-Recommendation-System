@@ -179,21 +179,37 @@ def main():
             horizontal=True
         )
         
+        # Initialize session state for query if not exists
+        if 'current_query' not in st.session_state:
+            st.session_state['current_query'] = ''
+        
+        # Check if there's an example query from session state
+        if 'example_query' in st.session_state and st.session_state['example_query']:
+            st.session_state['current_query'] = st.session_state['example_query']
+            st.session_state['example_query'] = ''
+        
         if input_method == "Text Query":
             query = st.text_area(
                 "Enter your query:",
+                value=st.session_state['current_query'],
                 placeholder="e.g., I need Java developers who can collaborate with business teams",
-                height=100
+                height=100,
+                key="query_input_text"
             )
         elif input_method == "Job Description Text":
             query = st.text_area(
                 "Paste job description:",
+                value=st.session_state['current_query'],
                 placeholder="Paste the complete job description here...",
-                height=200
+                height=200,
+                key="query_input_jd"
             )
         else:
             st.info("URL input feature coming soon!")
-            query = ""
+            query = st.session_state['current_query']
+        
+        # Update session state with current query
+        st.session_state['current_query'] = query
         
         col1, col2, col3 = st.columns([1, 1, 4])
         with col1:
@@ -202,6 +218,7 @@ def main():
             clear_button = st.button("🗑️ Clear", use_container_width=True)
         
         if clear_button:
+            st.session_state['current_query'] = ''
             st.rerun()
         
         # Search and display results
@@ -270,6 +287,8 @@ def main():
         for example in examples:
             if st.button(f"📌 {example}", use_container_width=True):
                 st.session_state['example_query'] = example
+                # Switch to the Search tab automatically
+                st.session_state['active_tab'] = 'Search'
                 st.rerun()
     
     with tab3:
