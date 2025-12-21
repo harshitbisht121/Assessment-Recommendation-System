@@ -1,0 +1,31 @@
+# Web Scraping
+playwright==1.41.0
+beautifulsoup4==4.12.3
+
+# Data Processing
+pandas==2.1.4
+numpy==1.26.3
+
+# ML & Embeddings
+sentence-transformers==2.3.1
+faiss-cpu==1.7.4
+scikit-learn==1.4.0
+
+# LLM Integration
+google-generativeai==0.3.2
+langchain==0.1.0
+langchain-community==0.0.13
+langchain-google-genai==0.0.6
+
+# API
+fastapi==0.109.0
+uvicorn==0.27.0
+pydantic==2.5.3
+
+# Frontend
+streamlit==1.30.0
+
+# Utilities
+python-dotenv==1.0.0
+requests==2.31.0
+tqdm==4.66.1
