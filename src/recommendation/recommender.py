@@ -1,11 +1,13 @@
 """
 SHL Assessment Recommendation Engine
-Uses semantic search with FAISS and LLM-based re-ranking
+Uses semantic search with FAISS and LLM-based re-ranking with calibrated scoring
 """
 import pandas as pd
 import numpy as np
 from sentence_transformers import SentenceTransformer
 import faiss
+from rank_bm25 import BM25Okapi
+from nltk.tokenize import word_tokenize
 from pathlib import Path
 import google.generativeai as genai
 import os
@@ -34,6 +36,18 @@ class SHLRecommender:
         # Build FAISS index for fast similarity search
         self.index = self._build_faiss_index()
         
+        print("Building BM25 index...")
+
+        texts = (
+            self.metadata["name"].fillna("") + " " +
+            self.metadata["description"].fillna("")
+        ).tolist()
+
+        self.corpus_tokens = [word_tokenize(t.lower()) for t in texts]
+        self.bm25 = BM25Okapi(self.corpus_tokens)
+
+        print("✓ BM25 Ready")
+
         # Initialize Gemini for query enhancement and re-ranking
         api_key = os.getenv('GOOGLE_API_KEY')
         if api_key:
@@ -44,10 +58,10 @@ class SHLRecommender:
                     self.llm = genai.GenerativeModel('gemini-2.5-flash')
                 except:
                     try:
-                        self.llm = genai.GenerativeModel('gemini-2.5-flash')
+                        self.llm = genai.GenerativeModel('gemini-2.0-flash')
                     except:
                         try:
-                            self.llm = genai.GenerativeModel('gemini-2.5-flash')
+                            self.llm = genai.GenerativeModel('gemini-1.5-flash')
                         except:
                             print("⚠ Warning: No Gemini model available. LLM features disabled.")
                             self.llm = None
@@ -184,29 +198,152 @@ Be concise."""
         
         return requirements
     
-    def semantic_search(self, query: str, top_k: int = 20) -> List[int]:
-        """
-        Perform semantic search using FAISS
-        
-        Args:
-            query: Search query
-            top_k: Number of results to return
-            
-        Returns:
-            List of indices of top matches
-        """
-        # Encode query
+    def semantic_search(self, query: str, top_k: int = 50):
+        """Perform semantic search using FAISS with larger pool"""
         query_embedding = self.model.encode([query])[0]
         query_embedding = query_embedding / np.linalg.norm(query_embedding)
-        
-        # Search
+
         scores, indices = self.index.search(
             query_embedding.reshape(1, -1).astype('float32'),
             top_k
         )
-        
+
         return indices[0].tolist(), scores[0].tolist()
     
+    
+    def hybrid_search(self, query, semantic_k=200, bm25_k=80):
+        """
+        Hybrid retrieval:
+        - Semantic via FAISS
+        - Lexical via BM25
+        - Normalize + merge scores
+        """
+
+        # ---------- Semantic Retrieval ----------
+        sem_idx, sem_scores = self.semantic_search(query, top_k=semantic_k)
+        semantic_results = {idx: float(score) for idx, score in zip(sem_idx, sem_scores)}
+
+        # ---------- BM25 Retrieval ----------
+        query_tokens = word_tokenize(query.lower())
+        bm25_scores = self.bm25.get_scores(query_tokens)
+
+        bm25_ranked = np.argsort(bm25_scores)[::-1][:bm25_k]
+        bm25_results = {int(i): float(bm25_scores[i]) for i in bm25_ranked}
+
+        # ---------- Normalize ----------
+        if semantic_results:
+            max_sem = max(semantic_results.values())
+            for k in semantic_results:
+                semantic_results[k] /= (max_sem + 1e-8)
+
+        if bm25_results:
+            max_bm = max(bm25_results.values())
+            for k in bm25_results:
+                bm25_results[k] /= (max_bm + 1e-8)
+
+        # ---------- Merge (Weighted) ----------
+        final = {}
+
+        # semantic weight higher → keeps good code/query behavior
+        for k, v in semantic_results.items():
+            final[k] = final.get(k, 0) + v * 0.65
+
+        # bm25 helps business/role language
+        for k, v in bm25_results.items():
+            final[k] = final.get(k, 0) + v * 0.35
+
+        ranked = sorted(final.items(), key=lambda x: x[1], reverse=True)
+
+        indices = [x[0] for x in ranked]
+        scores = [x[1] for x in ranked]
+
+        return indices, scores
+
+
+    def smart_rerank(self, indices, scores, query, requirements):
+        """
+        Weighted reranking to prioritize relevant SHL categories
+        Returns raw boosted scores without normalization
+        """
+        boosted = []
+
+        q = query.lower()
+
+        for idx, score in zip(indices, scores):
+            row = self.metadata.iloc[idx]
+            test_types = eval(row['test_type']) if isinstance(row['test_type'], str) else row['test_type']
+
+            boost = 0.0
+            
+            # Category relevance boosting
+            if 'K' in requirements['test_types'] and 'K' in test_types:
+                boost += 0.15
+            if 'P' in requirements['test_types'] and 'P' in test_types:
+                boost += 0.15
+            
+            # Leadership / Manager roles bias
+            if any(k in q for k in ["leader", "manager", "coo", "head", "director", "management"]):
+                if 'P' in test_types or 'A' in test_types:
+                    boost += 0.12
+
+            # Graduate / campus hiring
+            if any(k in q for k in ["graduate", "freshers", "entry level", "campus"]):
+                if 'P' in test_types or 'A' in test_types:
+                    boost += 0.10
+
+            # Cognitive
+            if "cognitive" in q or "aptitude" in q:
+                if 'A' in test_types:
+                    boost += 0.12
+            
+            # Keyword match boost
+            name = str(row['name']).lower()
+            desc = str(row.get('description', '')).lower()
+            keywords = ["java", "python", "sql", "javascript", "sales", "marketing", "analyst"]
+
+            for k in keywords:
+                if k in q and (k in name or k in desc):
+                    boost += 0.12
+            
+            boosted.append((idx, float(score + boost)))
+
+        boosted = sorted(boosted, key=lambda x: x[1], reverse=True)
+
+        indices_sorted = [x[0] for x in boosted]
+        scores_sorted = [x[1] for x in boosted]
+        
+        # Return raw boosted scores (no normalization)
+        return indices_sorted, scores_sorted
+
+    def calibrate_score(self, raw_score: float) -> float:
+        """
+        Calibrate raw scores to meaningful confidence percentages
+        
+        Args:
+            raw_score: Raw boosted score from reranking
+            
+        Returns:
+            Calibrated score between 0 and 1 (0-100%)
+        """
+        # Based on typical score ranges from hybrid search + boosts
+        # These thresholds should be tuned based on your data
+        
+        if raw_score > 1.5:
+            # Excellent match: high semantic similarity + category + keyword matches
+            return min(0.85 + (raw_score - 1.5) * 0.10, 1.0)  # 85-100%
+        elif raw_score > 1.2:
+            # Very good match: good semantic + some boosts
+            return 0.70 + (raw_score - 1.2) * 0.50  # 70-85%
+        elif raw_score > 0.9:
+            # Good match: decent semantic similarity
+            return 0.55 + (raw_score - 0.9) * 0.50  # 55-70%
+        elif raw_score > 0.6:
+            # Moderate match: some relevance
+            return 0.35 + (raw_score - 0.6) * 0.67  # 35-55%
+        else:
+            # Weak match
+            return max(raw_score * 0.50, 0.0)  # 0-35%
+
     def balance_recommendations(
         self,
         indices: List[int],
@@ -268,56 +405,89 @@ Be concise."""
         query: str,
         top_k: int = 10,
         enhance_query: bool = True,
-        balance: bool = True
-    ) -> List[Dict]:
+        balance: bool = True,
+        min_relevance: float = 0.30  # Minimum relevance threshold (30%)
+    ):
         """
-        Main recommendation function
+        Generate recommendations with calibrated relevance scores
         
         Args:
             query: User query or job description
-            top_k: Number of recommendations (1-10)
-            enhance_query: Whether to use LLM for query enhancement
-            balance: Whether to balance results across test types
+            top_k: Number of recommendations to return
+            enhance_query: Whether to use LLM query enhancement
+            balance: Whether to balance recommendations by category
+            min_relevance: Minimum relevance score to include (0-1)
             
         Returns:
-            List of recommendation dictionaries
+            List of recommendations with calibrated relevance scores
         """
-        # Validate top_k
         top_k = max(1, min(10, top_k))
-        
-        # Enhance query if enabled
+
+        # Enhance query (LLM + fallback)
         search_query = self.enhance_query(query) if enhance_query else query
-        
-        # Extract requirements for balancing
+
+        # Extract intent
         requirements = self.extract_requirements(query)
-        
-        # Semantic search
-        indices, scores = self.semantic_search(search_query, top_k=20)
-        
-        # Balance recommendations if needed
+    
+        # Retrieve larger candidate pool
+        indices, scores = self.hybrid_search(search_query, semantic_k=200, bm25_k=80)
+
+        # Convert to list of tuples so we can safely manipulate
+        candidates = list(zip(indices, scores))
+
+        # Deduplicate indices
+        seen = set()
+        unique_candidates = []
+        for idx, score in candidates:
+            if idx not in seen:
+                unique_candidates.append((idx, score))
+                seen.add(idx)
+
+        indices = [c[0] for c in unique_candidates]
+        scores = [c[1] for c in unique_candidates]
+       
+        # Balance Categories (Only if test types detected)
         if balance and requirements['test_types']:
-            indices = self.balance_recommendations(indices, scores, requirements, top_k)
-        else:
-            indices = indices[:top_k]
+            indices = self.balance_recommendations(
+                indices,
+                scores,
+                requirements,
+                target_count=40  # Larger pool for fairness
+            )
+
+        # Smart Intent Reranking (returns raw boosted scores)
+        indices, raw_scores = self.smart_rerank(indices, scores, query, requirements)
+
+        # Calibrate scores to meaningful percentages
+        calibrated_scores = [self.calibrate_score(score) for score in raw_scores]
+
+        # Filter by minimum relevance and trim to top_k
+        filtered_results = []
+        for idx, cal_score, raw_score in zip(indices, calibrated_scores, raw_scores):
+            if cal_score >= min_relevance:
+                filtered_results.append((idx, cal_score, raw_score))
         
-        # Format results
+        # Take top_k results
+        filtered_results = filtered_results[:top_k]
+
+        # Build Response
         recommendations = []
-        for idx in indices:
+        for idx, cal_score, raw_score in filtered_results:
             row = self.metadata.iloc[idx]
-            
-            # Handle test_type column
+
             test_types = eval(row['test_type']) \
-                        if isinstance(row['test_type'], str) \
-                        else row['test_type']
+                if isinstance(row['test_type'], str) \
+                else row['test_type']
             
             recommendations.append({
-                'assessment_name': row['name'],  # Use 'name' column
-                'assessment_url': row['url'],    # Use 'url' column
+                'assessment_name': row['name'],
+                'assessment_url': row['url'],
                 'description': row.get('description', ''),
                 'test_type': test_types,
-                'relevance_score': float(scores[indices.index(idx)]) if idx in indices[:len(scores)] else 0.0
+                'relevance_score': round(float(cal_score), 4),  # Calibrated score
+                'raw_score': round(float(raw_score), 4)  # Optional: for debugging
             })
-        
+
         return recommendations
     
     def recommend_from_url(self, jd_url: str, top_k: int = 10) -> List[Dict]:
@@ -360,7 +530,8 @@ def main():
     test_queries = [
         "I need Java developers who can also collaborate effectively with my business teams.",
         "Looking for mid-level professionals proficient in Python, SQL and JavaScript.",
-        "Need cognitive and personality tests for analyst position"
+        "Need cognitive and personality tests for analyst position",
+        "Entry level sales representative with communication skills"
     ]
     
     for query in test_queries:
@@ -370,10 +541,14 @@ def main():
         
         recommendations = recommender.recommend(query, top_k=5)
         
+        if not recommendations:
+            print("No recommendations found above minimum relevance threshold.")
+        
         for i, rec in enumerate(recommendations, 1):
             print(f"\n{i}. {rec['assessment_name']}")
             print(f"   Types: {', '.join(rec['test_type'])}")
-            print(f"   Score: {rec['relevance_score']:.4f}")
+            print(f"   Relevance: {rec['relevance_score']*100:.2f}%")
+            print(f"   Raw Score: {rec['raw_score']:.4f}")
             print(f"   URL: {rec['assessment_url']}")
 
 

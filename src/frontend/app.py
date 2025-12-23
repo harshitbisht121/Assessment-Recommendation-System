@@ -1,5 +1,6 @@
 """
 Streamlit Frontend for SHL Assessment Recommendation System
+Fixed version with proper text persistence
 """
 import streamlit as st
 import requests
@@ -69,6 +70,17 @@ TEST_TYPE_INFO = {
 }
 
 
+# Initialize session state
+def init_session_state():
+    """Initialize all session state variables"""
+    if 'query_text' not in st.session_state:
+        st.session_state.query_text = ''
+    if 'last_results' not in st.session_state:
+        st.session_state.last_results = None
+    if 'input_method' not in st.session_state:
+        st.session_state.input_method = "Text Query"
+
+
 def check_api_health() -> bool:
     """Check if API is healthy"""
     try:
@@ -118,13 +130,16 @@ def display_recommendation(rec: Dict, index: int):
         with col2:
             # Relevance score
             score = rec.get('relevance_score', 0)
-            st.metric("Relevance", f"{score:.2%}")
+            st.metric("Relevance", f"{score*100:.2f}%")
         
         st.markdown("---")
 
 
 def main():
     """Main application"""
+    
+    # Initialize session state
+    init_session_state()
     
     # Header
     st.markdown('<p class="main-header">🎯 SHL Assessment Recommender</p>', unsafe_allow_html=True)
@@ -163,115 +178,116 @@ def main():
             "Number of recommendations",
             min_value=1,
             max_value=10,
-            value=10
+            value=5
         )
     
     # Main content
-    tab1, tab2, tab3 = st.tabs(["🔍 Search", "📝 Examples", "ℹ️ Help"])
+    tab1, tab2, tab3 = st.tabs(["🔍 Search", "📋 Examples", "ℹ️ Help"])
     
     with tab1:
         # Query input
         st.markdown("### Enter your query or job description")
         
+        # Input method selection
         input_method = st.radio(
             "Input method:",
             ["Text Query", "Job Description Text", "URL (Coming Soon)"],
-            horizontal=True
+            horizontal=True,
+            key="input_method_radio"
         )
         
-        # Initialize session state for query if not exists
-        if 'current_query' not in st.session_state:
-            st.session_state['current_query'] = ''
+        # Update session state with input method
+        st.session_state.input_method = input_method
         
-        # Check if there's an example query from session state
-        if 'example_query' in st.session_state and st.session_state['example_query']:
-            st.session_state['current_query'] = st.session_state['example_query']
-            st.session_state['example_query'] = ''
-        
+        # Text input area - use session state for value
         if input_method == "Text Query":
             query = st.text_area(
                 "Enter your query:",
-                value=st.session_state['current_query'],
+                value=st.session_state.query_text,
                 placeholder="e.g., I need Java developers who can collaborate with business teams",
                 height=100,
-                key="query_input_text"
+                key="query_input",
+                on_change=lambda: setattr(st.session_state, 'query_text', st.session_state.query_input)
             )
         elif input_method == "Job Description Text":
             query = st.text_area(
                 "Paste job description:",
-                value=st.session_state['current_query'],
+                value=st.session_state.query_text,
                 placeholder="Paste the complete job description here...",
                 height=200,
-                key="query_input_jd"
+                key="query_input_jd",
+                on_change=lambda: setattr(st.session_state, 'query_text', st.session_state.query_input_jd)
             )
         else:
             st.info("URL input feature coming soon!")
-            query = st.session_state['current_query']
+            query = st.session_state.query_text
         
-        # Update session state with current query
-        st.session_state['current_query'] = query
+        # Update session state query_text
+        st.session_state.query_text = query
         
+        # Buttons
         col1, col2, col3 = st.columns([1, 1, 4])
         with col1:
             search_button = st.button("🔍 Search", type="primary", use_container_width=True)
         with col2:
-            clear_button = st.button("🗑️ Clear", use_container_width=True)
-        
-        if clear_button:
-            st.session_state['current_query'] = ''
-            st.rerun()
+            if st.button("🗑️ Clear", use_container_width=True):
+                st.session_state.query_text = ''
+                st.session_state.last_results = None
+                st.rerun()
         
         # Search and display results
-        if search_button and query:
+        if search_button and query.strip():
             with st.spinner("🤖 Finding best assessments..."):
                 results = get_recommendations(query, num_recommendations)
+                st.session_state.last_results = results
+        
+        # Display results (either from current search or previous)
+        results = st.session_state.last_results
+        
+        if results and results.get('recommendations'):
+            st.success(f"✓ Found {len(results['recommendations'])} recommendations")
             
-            if results and results.get('recommendations'):
-                st.success(f"✓ Found {len(results['recommendations'])} recommendations")
-                
-                # Display recommendations
-                st.markdown("---")
-                st.markdown("## 📋 Recommendations")
-                
-                for i, rec in enumerate(results['recommendations'], 1):
-                    display_recommendation(rec, i)
-                
-                # Export options
-                st.markdown("---")
-                st.markdown("### 💾 Export Results")
-                
-                # Create DataFrame for export
-                export_data = []
-                for rec in results['recommendations']:
-                    export_data.append({
-                        'Assessment Name': rec['assessment_name'],
-                        'URL': rec['assessment_url'],
-                        'Test Types': ', '.join(rec.get('test_type', [])),
-                        'Relevance Score': rec.get('relevance_score', 0)
-                    })
-                
-                df = pd.DataFrame(export_data)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    csv = df.to_csv(index=False)
-                    st.download_button(
-                        "📥 Download CSV",
-                        csv,
-                        "shl_recommendations.csv",
-                        "text/csv",
-                        use_container_width=True
-                    )
-                with col2:
-                    st.dataframe(df, use_container_width=True)
+            # Display recommendations
+            st.markdown("---")
+            st.markdown("## 📋 Recommendations")
             
-            elif results:
-                st.warning("No recommendations found. Try a different query.")
-            else:
-                st.error("Failed to get recommendations. Please check API connection.")
+            for i, rec in enumerate(results['recommendations'], 1):
+                display_recommendation(rec, i)
+            
+            # Export options
+            st.markdown("---")
+            st.markdown("### 💾 Export Results")
+            
+            # Create DataFrame for export
+            export_data = []
+            for rec in results['recommendations']:
+                export_data.append({
+                    'Assessment Name': rec['assessment_name'],
+                    'URL': rec['assessment_url'],
+                    'Test Types': ', '.join(rec.get('test_type', [])),
+                    'Relevance Score': f"{rec.get('relevance_score', 0)*100:.2f}%"
+                })
+            
+            df = pd.DataFrame(export_data)
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    "📥 Download CSV",
+                    csv,
+                    "shl_recommendations.csv",
+                    "text/csv",
+                    use_container_width=True
+                )
+            with col2:
+                st.dataframe(df, use_container_width=True)
+        
+        elif search_button and query.strip():
+            st.warning("No recommendations found. Try a different query.")
     
     with tab2:
-        st.markdown("### 📝 Example Queries")
+        st.markdown("### 📋 Example Queries")
         st.markdown("""
         Try these sample queries to see the system in action:
         """)
@@ -285,10 +301,9 @@ def main():
         ]
         
         for example in examples:
-            if st.button(f"📌 {example}", use_container_width=True):
-                st.session_state['example_query'] = example
-                # Switch to the Search tab automatically
-                st.session_state['active_tab'] = 'Search'
+            if st.button(f"📌 {example}", use_container_width=True, key=f"example_{hash(example)}"):
+                st.session_state.query_text = example
+                st.session_state.last_results = None
                 st.rerun()
     
     with tab3:
