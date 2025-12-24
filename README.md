@@ -68,6 +68,9 @@ SHL_RECOMMENDATION_SYSTEM/
 │   └── secrets.toml                  # Streamlit secrets
 ├── venv/                             # Virtual environment
 ├── .env                              # Environment variables
+├── .env.example                      # Environment variables template
+├── railway.json                      # Railway deployment config
+├── main.py                           # Railway entry point
 ├── .gitignore
 ├── config.py                         # Configuration settings
 ├── test_system.py                    # System validation tests
@@ -268,7 +271,30 @@ CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
 
 Deploy to your preferred platform:
 
-- **Railway**: Connect GitHub repo and deploy
+#### Railway Deployment 🚂
+
+Railway provides the easiest deployment experience:
+
+1. **Connect Repository**:
+   - Go to [Railway.app](https://railway.app) and create an account
+   - Click "New Project" → "Deploy from GitHub repo"
+   - Connect your GitHub repository
+
+2. **Configure Environment Variables** (Optional):
+   - `GOOGLE_API_KEY`: Your Google Gemini API key for enhanced query processing
+   - Railway automatically provides `PORT`
+
+3. **Deploy**:
+   - Railway will automatically detect Python and install dependencies
+   - Your API will be available at the generated Railway URL
+
+4. **Verify Deployment**:
+   ```bash
+   curl https://your-railway-url.railway.app/health
+   ```
+
+#### Other Platforms
+
 - **Render**: Use `uvicorn src.api.app:app --host 0.0.0.0 --port $PORT`
 - **AWS/GCP**: Deploy as containerized service
 - **Heroku**: Add `Procfile` with web command
