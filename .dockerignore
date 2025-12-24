@@ -1,0 +1,40 @@
+# Development files
+.vscode/
+.idea/
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+
+# Notebooks (not needed for deployment)
+notebooks/
+*.ipynb
+
+# Data (already processed embeddings are included)
+data/raw/
+data/datasets/
+
+# Virtual environment
+venv/
+env/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Testing
+test_*.py
+*_test.py
+
+# Development dependencies
+.env*
+!.env.example
+
+# IDE files
+*.swp
+*.swo
+*~

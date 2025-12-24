@@ -2,12 +2,13 @@
 playwright==1.41.0
 beautifulsoup4==4.12.3
 
-# Data Processing
-pandas==2.1.4
-numpy==1.26.3
-nltk==3.9.2
-rank-bm25==0.2.2
-# ML & Embeddings
+# Data Processing (minimal versions)
+pandas>=2.1.0
+numpy>=1.24.0
+nltk>=3.8
+rank-bm25>=0.2.0
+# ML & Embeddings (CPU-only versions)
+torch==2.0.1+cpu --index-url https://download.pytorch.org/whl/cpu
 sentence-transformers==2.3.1
 faiss-cpu==1.8.0
 scikit-learn==1.4.0
