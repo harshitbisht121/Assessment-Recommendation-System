@@ -56,7 +56,7 @@ st.markdown("""
 
 # API Configuration
 import os
-API_BASE_URL = os.environ.get("API_URL", "http://localhost:8000")
+API_BASE_URL = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
 
 # Test type descriptions
 TEST_TYPE_INFO = {
