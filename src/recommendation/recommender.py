@@ -9,13 +9,27 @@ import faiss
 from rank_bm25 import BM25Okapi
 from nltk.tokenize import word_tokenize
 from pathlib import Path
-import google.generativeai as genai
 import os
+import ast
 from typing import List, Dict, Optional
 import re
+import sys
+
+# Add parent directory to path to import config
+sys.path.append(str(Path(__file__).parent.parent.parent))
+try:
+    from config import PROCESSED_DATA_DIR
+except ImportError:
+    PROCESSED_DATA_DIR = Path("data/processed")
+
+try:
+    import google.generativeai as genai
+    HAS_GENAI = True
+except ImportError:
+    HAS_GENAI = False
 
 class SHLRecommender:
-    def __init__(self, data_dir="data/processed", model_name='all-MiniLM-L6-v2'):
+    def __init__(self, data_dir=None, model_name='all-MiniLM-L6-v2'):
         """
         Initialize recommendation system
         
@@ -24,7 +38,7 @@ class SHLRecommender:
             model_name: Sentence transformer model name
         """
         self.model = SentenceTransformer(model_name)
-        self.data_dir = Path(data_dir)
+        self.data_dir = Path(data_dir) if data_dir else PROCESSED_DATA_DIR
         
         # Load embeddings and metadata
         self.embeddings = np.load(self.data_dir / "embeddings.npy")
@@ -50,7 +64,7 @@ class SHLRecommender:
 
         # Initialize Gemini for query enhancement and re-ranking
         api_key = os.getenv('GOOGLE_API_KEY')
-        if api_key:
+        if api_key and HAS_GENAI:
             try:
                 genai.configure(api_key=api_key)
                 # Use the latest stable model - try multiple options
@@ -271,7 +285,7 @@ Be concise."""
 
         for idx, score in zip(indices, scores):
             row = self.metadata.iloc[idx]
-            test_types = eval(row['test_type']) if isinstance(row['test_type'], str) else row['test_type']
+            test_types = ast.literal_eval(row['test_type']) if isinstance(row['test_type'], str) else row['test_type']
 
             boost = 0.0
             
@@ -372,7 +386,7 @@ Be concise."""
         other_indices = []
         
         for idx in indices:
-            test_types = eval(self.metadata.iloc[idx]['test_type']) \
+            test_types = ast.literal_eval(self.metadata.iloc[idx]['test_type']) \
                         if isinstance(self.metadata.iloc[idx]['test_type'], str) \
                         else self.metadata.iloc[idx]['test_type']
             
@@ -475,7 +489,7 @@ Be concise."""
         for idx, cal_score, raw_score in filtered_results:
             row = self.metadata.iloc[idx]
 
-            test_types = eval(row['test_type']) \
+            test_types = ast.literal_eval(row['test_type']) \
                 if isinstance(row['test_type'], str) \
                 else row['test_type']
             

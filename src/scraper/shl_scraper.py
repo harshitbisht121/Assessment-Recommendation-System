@@ -1,6 +1,14 @@
 import pandas as pd
 from playwright.sync_api import sync_playwright
 import time
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).parent.parent.parent))
+try:
+    from config import RAW_DATA_DIR
+except ImportError:
+    RAW_DATA_DIR = Path("data/raw")
 
 BASE = "https://www.shl.com/solutions/products/product-catalog/?start="
 BASE_DOMAIN = "https://www.shl.com"
@@ -183,8 +191,10 @@ def scrape_catalog():
     print(f"Total Individual Test Solutions scraped: {len(df)}")
     
     # Save to CSV
-    df.to_csv("data/raw/shl_catalog.csv", index=False)
-    print("\n✓ Saved → data/raw/shl_catalog.csv")
+    output_path = RAW_DATA_DIR / "shl_catalog.csv"
+    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    df.to_csv(output_path, index=False)
+    print(f"\n✓ Saved → {output_path}")
     
     return df
 

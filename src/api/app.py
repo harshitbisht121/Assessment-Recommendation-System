@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
 from typing import List, Optional
+from contextlib import asynccontextmanager
 import sys
 from pathlib import Path
 
@@ -14,35 +15,16 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from src.recommendation.recommender import SHLRecommender
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="SHL Assessment Recommendation API",
-    description="API for recommending SHL assessments based on job descriptions",
-    version="1.0.0"
-)
-
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Initialize recommender (singleton)
 recommender = None
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Load recommender on startup"""
     global recommender
     try:
         print("Loading recommender system...")
-        recommender = SHLRecommender(
-            data_dir="data/processed",
-            model_name='all-MiniLM-L6-v2'
-        )
+        recommender = SHLRecommender(model_name='all-MiniLM-L6-v2')
         print("✓ Recommender system loaded successfully")
         
         # Test recommendation to catch any issues early
@@ -59,6 +41,29 @@ async def startup_event():
         import traceback
         traceback.print_exc()
         raise
+        
+    yield
+    # Cleanup (if any)
+    recommender = None
+
+# Initialize FastAPI app
+app = FastAPI(
+    title="SHL Assessment Recommendation API",
+    description="API for recommending SHL assessments based on job descriptions",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Remove old startup event
 
 
 # Request/Response Models

@@ -55,7 +55,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # API Configuration
-API_BASE_URL = "http://localhost:8000"
+import os
+API_BASE_URL = os.environ.get("API_URL", "http://localhost:8000")
 
 # Test type descriptions
 TEST_TYPE_INFO = {
@@ -79,6 +80,8 @@ def init_session_state():
         st.session_state.last_results = None
     if 'input_method' not in st.session_state:
         st.session_state.input_method = "Text Query"
+    if 'trigger_search' not in st.session_state:
+        st.session_state.trigger_search = False
 
 
 def check_api_health() -> bool:
@@ -235,56 +238,7 @@ def main():
                 st.session_state.last_results = None
                 st.rerun()
         
-        # Search and display results
-        if search_button and query.strip():
-            with st.spinner("🤖 Finding best assessments..."):
-                results = get_recommendations(query, num_recommendations)
-                st.session_state.last_results = results
-        
-        # Display results (either from current search or previous)
-        results = st.session_state.last_results
-        
-        if results and results.get('recommendations'):
-            st.success(f"✓ Found {len(results['recommendations'])} recommendations")
-            
-            # Display recommendations
-            st.markdown("---")
-            st.markdown("## 📋 Recommendations")
-            
-            for i, rec in enumerate(results['recommendations'], 1):
-                display_recommendation(rec, i)
-            
-            # Export options
-            st.markdown("---")
-            st.markdown("### 💾 Export Results")
-            
-            # Create DataFrame for export
-            export_data = []
-            for rec in results['recommendations']:
-                export_data.append({
-                    'Assessment Name': rec['assessment_name'],
-                    'URL': rec['assessment_url'],
-                    'Test Types': ', '.join(rec.get('test_type', [])),
-                    'Relevance Score': f"{rec.get('relevance_score', 0)*100:.2f}%"
-                })
-            
-            df = pd.DataFrame(export_data)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                csv = df.to_csv(index=False)
-                st.download_button(
-                    "📥 Download CSV",
-                    csv,
-                    "shl_recommendations.csv",
-                    "text/csv",
-                    use_container_width=True
-                )
-            with col2:
-                st.dataframe(df, use_container_width=True)
-        
-        elif search_button and query.strip():
-            st.warning("No recommendations found. Try a different query.")
+
     
     with tab2:
         st.markdown("### 📋 Example Queries")
@@ -304,6 +258,7 @@ def main():
             if st.button(f"📌 {example}", use_container_width=True, key=f"example_{hash(example)}"):
                 st.session_state.query_text = example
                 st.session_state.last_results = None
+                st.session_state.trigger_search = True
                 st.rerun()
     
     with tab3:
@@ -327,6 +282,61 @@ def main():
         - **S**: Simulations - Job simulations
         - **B**: Biodata & SJT - Situational judgment
         """)
+
+    # --- Render Results (Outside Tabs) ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Run search if triggered
+    if (search_button or st.session_state.get('trigger_search', False)) and query.strip():
+        with st.spinner("🤖 Finding best assessments..."):
+            results = get_recommendations(query, num_recommendations)
+            st.session_state.last_results = results
+            st.session_state.trigger_search = False  # Reset trigger
+            
+    # Display results (either from current search or previous)
+    results = st.session_state.last_results
+    
+    if results and results.get('recommendations'):
+        st.success(f"✓ Found {len(results['recommendations'])} recommendations for: **{query}**")
+        
+        # Display recommendations
+        st.markdown("---")
+        st.markdown("## 📋 Recommendations")
+        
+        for i, rec in enumerate(results['recommendations'], 1):
+            display_recommendation(rec, i)
+        
+        # Export options
+        st.markdown("---")
+        st.markdown("### 💾 Export Results")
+        
+        # Create DataFrame for export
+        export_data = []
+        for rec in results['recommendations']:
+            export_data.append({
+                'Assessment Name': rec['assessment_name'],
+                'URL': rec['assessment_url'],
+                'Test Types': ', '.join(rec.get('test_type', [])),
+                'Relevance Score': f"{rec.get('relevance_score', 0)*100:.2f}%"
+            })
+        
+        df = pd.DataFrame(export_data)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            csv = df.to_csv(index=False)
+            st.download_button(
+                "📥 Download CSV",
+                csv,
+                "shl_recommendations.csv",
+                "text/csv",
+                use_container_width=True
+            )
+        with col2:
+            st.dataframe(df, use_container_width=True)
+            
+    elif search_button and query.strip():
+        st.warning("No recommendations found. Try a different query.")
 
 
 if __name__ == "__main__":

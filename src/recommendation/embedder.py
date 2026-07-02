@@ -8,6 +8,14 @@ from sentence_transformers import SentenceTransformer
 import pickle
 from pathlib import Path
 from tqdm import tqdm
+import sys
+
+sys.path.append(str(Path(__file__).parent.parent.parent))
+try:
+    from config import PROCESSED_DATA_DIR, RAW_DATA_DIR
+except ImportError:
+    PROCESSED_DATA_DIR = Path("data/processed")
+    RAW_DATA_DIR = Path("data/raw")
 
 class AssessmentEmbedder:
     def __init__(self, model_name='all-MiniLM-L6-v2'):
@@ -102,8 +110,11 @@ class AssessmentEmbedder:
         
         return self.embeddings
     
-    def save_embeddings(self, output_dir="data/processed"):
+    def save_embeddings(self, output_dir=None):
         """Save embeddings and metadata"""
+        if output_dir is None:
+            output_dir = PROCESSED_DATA_DIR
+        
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         
         # Save embeddings
@@ -128,10 +139,13 @@ class AssessmentEmbedder:
         print(f"✓ Saved metadata to: {metadata_path}")
     
     @classmethod
-    def load_embeddings(cls, model_name='all-MiniLM-L6-v2', data_dir="data/processed"):
+    def load_embeddings(cls, model_name='all-MiniLM-L6-v2', data_dir=None):
         """Load pre-computed embeddings"""
         embedder = cls(model_name=model_name)
         
+        if data_dir is None:
+            data_dir = PROCESSED_DATA_DIR
+            
         embeddings_path = Path(data_dir) / "embeddings.npy"
         metadata_path = Path(data_dir) / "metadata.csv"
         
@@ -146,7 +160,7 @@ class AssessmentEmbedder:
 def main():
     """Generate embeddings from scraped data"""
     # Load scraped data
-    data_path = "data/raw/shl_catalog.csv"
+    data_path = RAW_DATA_DIR / "shl_catalog.csv"
     print(f"Loading data from: {data_path}")
     df = pd.read_csv(data_path)
     

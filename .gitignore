@@ -2,3 +2,13 @@ venv/
 .env
 *.env
 __pycache__/
+
+# Data and Model files
+
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# OS generated files
+.DS_Store
+Thumbs.db
