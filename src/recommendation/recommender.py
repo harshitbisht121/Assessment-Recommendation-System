@@ -8,6 +8,18 @@ from sentence_transformers import SentenceTransformer
 import faiss
 from rank_bm25 import BM25Okapi
 from nltk.tokenize import word_tokenize
+import nltk
+
+# Ensure required NLTK data is downloaded
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
+    
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    nltk.download('punkt_tab', quiet=True)
 from pathlib import Path
 import os
 import ast
