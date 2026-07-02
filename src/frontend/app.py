@@ -235,6 +235,8 @@ def main():
         with col2:
             if st.button("🗑️ Clear", use_container_width=True):
                 st.session_state.query_text = ''
+                st.session_state.query_input = ''
+                st.session_state.query_input_jd = ''
                 st.session_state.last_results = None
                 st.rerun()
         
@@ -257,6 +259,8 @@ def main():
         for example in examples:
             if st.button(f"📌 {example}", use_container_width=True, key=f"example_{hash(example)}"):
                 st.session_state.query_text = example
+                st.session_state.query_input = example
+                st.session_state.query_input_jd = example
                 st.session_state.last_results = None
                 st.session_state.trigger_search = True
                 st.rerun()
