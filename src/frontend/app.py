@@ -138,6 +138,26 @@ def display_recommendation(rec: Dict, index: int):
         st.markdown("---")
 
 
+def handle_clear():
+    """Callback to clear search state safely"""
+    st.session_state.query_text = ''
+    if 'query_input' in st.session_state:
+        st.session_state.query_input = ''
+    if 'query_input_jd' in st.session_state:
+        st.session_state.query_input_jd = ''
+    st.session_state.last_results = None
+
+def handle_example(example: str):
+    """Callback to handle example clicks safely"""
+    st.session_state.query_text = example
+    if 'query_input' in st.session_state:
+        st.session_state.query_input = example
+    if 'query_input_jd' in st.session_state:
+        st.session_state.query_input_jd = example
+    st.session_state.last_results = None
+    st.session_state.trigger_search = True
+
+
 def main():
     """Main application"""
     
@@ -233,12 +253,7 @@ def main():
         with col1:
             search_button = st.button("🔍 Search", type="primary", use_container_width=True)
         with col2:
-            if st.button("🗑️ Clear", use_container_width=True):
-                st.session_state.query_text = ''
-                st.session_state.query_input = ''
-                st.session_state.query_input_jd = ''
-                st.session_state.last_results = None
-                st.rerun()
+            st.button("🗑️ Clear", use_container_width=True, on_click=handle_clear)
         
 
     
@@ -257,13 +272,13 @@ def main():
         ]
         
         for example in examples:
-            if st.button(f"📌 {example}", use_container_width=True, key=f"example_{hash(example)}"):
-                st.session_state.query_text = example
-                st.session_state.query_input = example
-                st.session_state.query_input_jd = example
-                st.session_state.last_results = None
-                st.session_state.trigger_search = True
-                st.rerun()
+            st.button(
+                f"📌 {example}", 
+                use_container_width=True, 
+                key=f"example_{hash(example)}",
+                on_click=handle_example,
+                args=(example,)
+            )
     
     with tab3:
         st.markdown("### ℹ️ How to Use")
